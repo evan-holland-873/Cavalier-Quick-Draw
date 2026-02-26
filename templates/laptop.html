@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Duel Hub - Laptop</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        #phone-status {
+            margin: 10px 0 16px 0;
+        }
+
+        .dot {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+            background: #7a7a7a; /* grey by default */
+        }
+
+        .dot.connected {
+            background: #26d34a; /* green when connected */
+        }
+    </style>
+</head>
+<body>
+    <h1>Duel Hub - Laptop</h1>
+    <p id="statusText">Waiting for phone connections...</p>
+
+    <div id="phone-status">
+        <span id="dot-0" class="dot" title="Player 1"></span>
+        <span id="dot-1" class="dot" title="Player 2"></span>
+    </div>
+
+    <button id="playMusicBtn" style="display:block; padding: 10px 20px; font-size: 1em; cursor: pointer;">Click Me First</button>
+
+    <script>
+        const socket = io();
+        let isMusicPlaying = false;
+        const statusText = document.getElementById('statusText');
+        
+
+        // loop the music
+        const audio = new Audio('/static/theme.mp3');
+        audio.loop = true;
+
+        document.getElementById('playMusicBtn').addEventListener('click', () => {
+            document.getElementById('playMusicBtn').style.display = 'none';
+        });
+
+        function setDots(slots) {
+            for (let i = 0; i < 2; i++) {
+                const dot = document.getElementById(`dot-${i}`);
+                dot.classList.toggle('connected', !!slots[i]);
+            }
+        }
+
+        socket.on('connect', () => {
+            console.log('Connected to server!');
+            socket.emit('laptop-connected');
+            socket.emit('reset_game');
+        });
+
+        // New: receive both phone slots from server, e.g. { slots: [true, false] }
+        socket.on('phone_status', ({ slots }) => {
+            setDots(slots);
+
+            const connectedCount = (slots || []).filter(Boolean).length;
+            if (connectedCount === 0) {
+                statusText.textContent = 'Waiting for phone connections...';
+            } else if (connectedCount === 1) {
+                statusText.textContent = '1 phone connected. Waiting for player 2...';
+            } else {
+                statusText.textContent = '2 phones connected. Ready!';
+                socket.emit('begin_game');
+            }
+
+            if (connectedCount > 0 && !isMusicPlaying) {
+                audio.play();
+                isMusicPlaying = true;
+            }
+        });
+
+        // Backward compatibility if your server still emits this old event
+        socket.on('phone_connected', () => {
+            console.log('Phone connected!');
+            statusText.textContent = 'Phone connected! Waiting for second phone...';
+            if (!isMusicPlaying) {
+                audio.play();
+                isMusicPlaying = true;
+            }
+        });
+
+        // New: game starts once both phones are connected
+        socket.on('begin_game', () => {
+            console.log('Both phones connected. begin_game received!');
+            statusText.textContent = 'Both players ready! Begin game!';
+        });
+
+        socket.on('begin_shooting', () => {
+            console.log("It's shooting time!");
+            statusText.textContent = 'FIREBALL!';
+            const fireballAudio = new Audio('/static/fire.mp3');
+            fireballAudio.play();
+        });
+
+        socket.on('game_over', (data) => {
+            console.log('Game over! Winner:', data.winner);
+            statusText.textContent = `Game Over! Winner: ${data.winner}`;
+            //change the background color to the winning color
+            document.body.style.backgroundColor = data.winner;
+        });
+
+        socket.on('ready_aim', () => {
+            console.log('Ready... Aim...');
+            statusText.textContent = 'Ready... Aim...';
+            const readyAimAudio = new Audio('/static/ready_aim.mp3');
+            readyAimAudio.play();
+        });
+
+        socket.on('take_places', () => {
+            console.log('Take your places!');
+            statusText.textContent = 'Take your places!';
+            const takePlacesAudio = new Audio('/static/take_places.mp3');
+            takePlacesAudio.play();
+        });
+
+        socket.on('player_moved', () => {
+            console.log('Movement detected from phone!');
+            statusText.textContent = 'Movement detected from phone!';
+            const audio = new Audio('/static/pew.mp3');
+            audio.play();
+        });
+    </script>
+</body>
+</html>

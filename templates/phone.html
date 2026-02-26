@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Phone Controller</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: {{ color }};
+        }
+        h1 {
+            margin-bottom: 20px;
+        }
+        #status {
+            font-size: 1.5em;
+            color: green;
+        }
+    </style>
+</head>
+<body>
+    <h1>Phone Controller</h1>
+    <button id="permissionBtn" style="display:block; padding: 10px 20px; font-size: 1em; cursor: pointer;">Request Permission</button>
+    <div id="status">Waiting for movement...</div>
+
+    <script>
+        const color = "{{ color }}";
+        if (window.DeviceMotionEvent) {
+            // Check if requestPermission is available (iOS 13+)
+            if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+                DeviceMotionEvent.requestPermission()
+                    .then(permissionState => {
+                        if (permissionState === 'granted') {
+                            window.addEventListener('devicemotion', handleDeviceMotion);
+                        } else {
+                            document.getElementById('status').textContent = 'Permission denied.';
+                        }
+                    })
+                    .catch(error => {
+                        document.getElementById('status').textContent = 'Error requesting permission: ' + error;
+                    });
+            } else {
+                // For non-iOS devices
+                window.addEventListener('devicemotion', handleDeviceMotion);
+            }
+        } else {
+            document.getElementById('status').textContent = 'Device motion not supported.';
+        }
+
+        document.getElementById('permissionBtn').addEventListener('click', askPermission);
+
+        function askPermission() {
+            DeviceMotionEvent.requestPermission()
+                .then(permissionState => {
+                    if (permissionState === 'granted') {
+                        window.addEventListener('devicemotion', handleDeviceMotion);
+                    } else {
+                        document.getElementById('status').textContent = 'Permission denied.';
+                    }
+                })
+                .catch(error => {
+                    document.getElementById('status').textContent = 'Error requesting permission: ' + error;
+                });
+        }
+
+        function handleDeviceMotion(event) {
+            var acceleration = event.accelerationIncludingGravity;
+            var x = acceleration.x;
+            var y = acceleration.y;
+            var z = acceleration.z;
+
+            // Simple threshold to detect a jerk
+            if (Math.abs(x) > 15 || Math.abs(y) > 15 || Math.abs(z) > 15) {
+                document.getElementById('status').textContent = 'Movement detected!';
+                // Here you can send a request to the server to notify about the movement
+                fetch('/phone-has-been-jerked-up', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ color: color })
+                }).then(response => {
+                    if (!response.ok) {
+                        console.error('Error notifying server:', response.statusText);
+                    }else if (response.status === 200) {
+                        response.json().then(data => {
+                            if (data.winner) {
+                                document.getElementById('status').textContent = `Game already won by ${data.winner}`;
+                                //check if winner is me
+                                if (data.winner === color) {
+                                    document.body.style.backgroundColor = color;
+                                }else if (data.winner !== color) {
+                                    //add gunshot.png over the center big on the screen
+                                    const gunshotImg = document.createElement('img');
+                                    gunshotImg.src = '/static/gunshot.png';
+                                    gunshotImg.style.position = 'absolute';
+                                    gunshotImg.style.top = '50%';
+                                    gunshotImg.style.left = '50%';
+                                    gunshotImg.style.transform = 'translate(-50%, -50%)';
+                                    gunshotImg.style.width = '200px';
+                                    document.body.appendChild(gunshotImg);
+                                    //vibrate the phone if supported
+                                    if (navigator.vibrate) {
+                                        navigator.vibrate(1000);
+                                    }
+                                }
+
+                            }
+                        });
+                    }
+                }).catch(error => {
+                    console.error('Error notifying server:', error);
+                });
+                //delay 1 second and reset the status text
+                setTimeout(() => {
+                    document.getElementById('status').textContent = 'Waiting for movement...';
+                }, 1000);
+            }
+        }
+    </script>
+</body>
+</html>
