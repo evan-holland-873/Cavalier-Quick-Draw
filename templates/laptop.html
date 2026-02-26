@@ -145,6 +145,19 @@
         const audio = new Audio('/static/theme.mp3');
         audio.loop = true;
 
+        //generate the QR code for the current page URL
+        const qrCodeImg = document.getElementById('qr-code-placeholder');
+        fetch('/qr-code?url=' + encodeURIComponent(window.location.href.replace('/laptop', '/phone')))
+            .then(response => response.blob())
+            .then(blob => {
+                const url = URL.createObjectURL(blob);
+                qrCodeImg.src = url;
+            })
+            .catch(() => {
+                qrCodeImg.alt = 'Failed to load QR code';
+            });
+            
+
         const tumbleweedConfig = {
             maxActive: 3,
             minSpawnMs: 3500,

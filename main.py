@@ -10,6 +10,7 @@ from flask import jsonify, request
 import datetime
 import time
 import random
+import qrcode
 
 time_of_most_recent_movement = datetime.datetime.now()
 allowed_to_shoot = False
@@ -26,6 +27,17 @@ socketio = SocketIO(app)
 @app.route("/")
 def index():
     return flask.render_template("index.html")
+
+@app.route("/qr-code", methods=['GET'])
+def qr_code():
+    url = request.args.get('url')
+    if not url:
+        return "URL parameter is required", 400
+    img = qrcode.make(url)
+    img.save("qr_code.png")
+    return flask.send_file("qr_code.png", mimetype='image/png')
+
+
 
 @app.route("/phone")
 def phone():
