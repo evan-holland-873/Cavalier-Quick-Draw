@@ -100,14 +100,13 @@
             maxLaunchVy: 900,
             gravity: 1800,
             bounceRestitution: 0.74,
-            impactFriction: 0.985,
-            airDrag: 0.9995,
-            rollDrag: 0.992,
-            minBounceVy: 170,
-            maxBounces: 12,
-            minRollSpeed: 55,
-            airSpinDamping: 0.9995,
-            groundSpinDamping: 0.996,
+            impactFriction: 0.995,
+            airDrag: 0.9998,
+            rollDrag: 0.9985,
+            minBounceVy: 120,
+            maxBounces: 14,
+            minExitSpeed: 190,
+            spinSmoothing: 0.18,
             offscreenPadding: 180
         };
 
@@ -153,7 +152,8 @@
                 vx,
                 vy: randomBetween(tumbleweedConfig.minLaunchVy, tumbleweedConfig.maxLaunchVy),
                 rotation: randomBetween(0, 360),
-                spin: (Math.random() > 0.5 ? 1 : -1) * randomBetween(110, 250),
+                spin: (fromLeft ? 1 : -1) * randomBetween(160, 260),
+                spinFactor: randomBetween(0.92, 1.12),
                 bounces: 0,
                 rolling: false,
                 size,
@@ -183,6 +183,12 @@
                 tumbleweed.vy -= tumbleweedConfig.gravity * dt;
                 tumbleweed.x += tumbleweed.vx * dt;
                 tumbleweed.y += tumbleweed.vy * dt;
+
+                const direction = tumbleweed.vx >= 0 ? 1 : -1;
+                const radius = Math.max(tumbleweed.size / 2, 1);
+                const wheelSpinDegPerSec = (Math.abs(tumbleweed.vx) / radius) * (180 / Math.PI) * tumbleweed.spinFactor;
+                const targetSpin = direction * (tumbleweed.rolling ? wheelSpinDegPerSec : wheelSpinDegPerSec * 0.8);
+                tumbleweed.spin += (targetSpin - tumbleweed.spin) * tumbleweedConfig.spinSmoothing;
                 tumbleweed.rotation += tumbleweed.spin * dt;
 
                 if (tumbleweed.y <= 0) {
@@ -202,16 +208,14 @@
 
                 if (tumbleweed.rolling) {
                     tumbleweed.vx *= tumbleweedConfig.rollDrag;
-                    tumbleweed.spin *= tumbleweedConfig.groundSpinDamping;
-
-                    if (Math.abs(tumbleweed.vx) < tumbleweedConfig.minRollSpeed) {
-                        tumbleweed.vx = tumbleweed.vx >= 0
-                            ? tumbleweedConfig.minRollSpeed
-                            : -tumbleweedConfig.minRollSpeed;
-                    }
                 } else {
                     tumbleweed.vx *= tumbleweedConfig.airDrag;
-                    tumbleweed.spin *= tumbleweedConfig.airSpinDamping;
+                }
+
+                if (Math.abs(tumbleweed.vx) < tumbleweedConfig.minExitSpeed) {
+                    tumbleweed.vx = tumbleweed.vx >= 0
+                        ? tumbleweedConfig.minExitSpeed
+                        : -tumbleweedConfig.minExitSpeed;
                 }
 
                 tumbleweed.el.style.transform = `translate3d(${tumbleweed.x}px, ${-tumbleweed.y}px, 0) rotate(${tumbleweed.rotation}deg)`;
