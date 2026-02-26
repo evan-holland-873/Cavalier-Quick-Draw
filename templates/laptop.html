@@ -5,6 +5,47 @@
     <title>Cavalier Quick Draw - Laptop</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <style>
+        body {
+            margin: 0;
+            padding: 0;
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background: url('/static/background.jpg') no-repeat center center / cover;
+            color: #fff;
+            font-family: Arial, sans-serif;
+        }
+
+        h1,
+        p,
+        #phone-status,
+        #playMusicBtn {
+            position: relative;
+            z-index: 2;
+        }
+
+        #tumbleweed-layer {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            overflow: hidden;
+            z-index: 1;
+        }
+
+        .tumbleweed {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            transform-origin: center center;
+            will-change: transform;
+            user-select: none;
+        }
+
         #phone-status {
             margin: 10px 0 16px 0;
         }
@@ -34,18 +75,259 @@
 
     <button id="playMusicBtn" style="display:block; padding: 10px 20px; font-size: 1em; cursor: pointer;">Click Me First</button>
 
+    <div id="tumbleweed-layer"></div>
+
     <script>
-        const socket = io();
+        let socket;
         let isMusicPlaying = false;
+        let isInfoPlayed = false;
         const statusText = document.getElementById('statusText');
-        
+        const tumbleweedLayer = document.getElementById('tumbleweed-layer');
+        //info text
+        const infoAudio = new Audio('/static/info.mp3');
 
         // loop the music
         const audio = new Audio('/static/theme.mp3');
         audio.loop = true;
 
+        const tumbleweedConfig = {
+            maxActive: 3,
+            minSpawnMs: 3500,
+            maxSpawnMs: 9000,
+            minTravelSpeed: 230,
+            maxTravelSpeed: 320,
+            minLaunchVy: 620,
+            maxLaunchVy: 900,
+            gravity: 1800,
+            bounceRestitution: 0.74,
+            impactFriction: 0.985,
+            airDrag: 0.9995,
+            rollDrag: 0.992,
+            minBounceVy: 170,
+            maxBounces: 12,
+            minRollSpeed: 55,
+            airSpinDamping: 0.9995,
+            groundSpinDamping: 0.996,
+            offscreenPadding: 180
+        };
+
+        const tumbleweeds = [];
+        let tumbleweedSpawnTimer = null;
+        let lastTumbleweedFrame = performance.now();
+
+        function randomBetween(min, max) {
+            return Math.random() * (max - min) + min;
+        }
+
+        function removeTumbleweed(index) {
+            const tumbleweed = tumbleweeds[index];
+            if (!tumbleweed) {
+                return;
+            }
+            tumbleweed.el.remove();
+            tumbleweeds.splice(index, 1);
+        }
+
+        function spawnTumbleweed() {
+            if (tumbleweeds.length >= tumbleweedConfig.maxActive) {
+                return;
+            }
+
+            const fromLeft = Math.random() > 0.5;
+            const size = randomBetween(108, 186);
+            const startX = fromLeft ? -size : window.innerWidth + size;
+            const speed = randomBetween(tumbleweedConfig.minTravelSpeed, tumbleweedConfig.maxTravelSpeed);
+            const vx = fromLeft ? speed : -speed;
+
+            const el = document.createElement('img');
+            el.src = '/static/tumbleweed.png';
+            el.className = 'tumbleweed';
+            el.alt = '';
+            el.width = Math.round(size);
+            tumbleweedLayer.appendChild(el);
+
+            tumbleweeds.push({
+                el,
+                x: startX,
+                y: randomBetween(0, 10),
+                vx,
+                vy: randomBetween(tumbleweedConfig.minLaunchVy, tumbleweedConfig.maxLaunchVy),
+                rotation: randomBetween(0, 360),
+                spin: (Math.random() > 0.5 ? 1 : -1) * randomBetween(110, 250),
+                bounces: 0,
+                rolling: false,
+                size,
+                fromLeft
+            });
+        }
+
+        function scheduleNextTumbleweed() {
+            if (tumbleweedSpawnTimer) {
+                clearTimeout(tumbleweedSpawnTimer);
+            }
+
+            const delay = randomBetween(tumbleweedConfig.minSpawnMs, tumbleweedConfig.maxSpawnMs);
+            tumbleweedSpawnTimer = setTimeout(() => {
+                spawnTumbleweed();
+                scheduleNextTumbleweed();
+            }, delay);
+        }
+
+        function animateTumbleweeds(now) {
+            const dt = Math.min((now - lastTumbleweedFrame) / 1000, 0.033);
+            lastTumbleweedFrame = now;
+
+            for (let i = tumbleweeds.length - 1; i >= 0; i--) {
+                const tumbleweed = tumbleweeds[i];
+
+                tumbleweed.vy -= tumbleweedConfig.gravity * dt;
+                tumbleweed.x += tumbleweed.vx * dt;
+                tumbleweed.y += tumbleweed.vy * dt;
+                tumbleweed.rotation += tumbleweed.spin * dt;
+
+                if (tumbleweed.y <= 0) {
+                    tumbleweed.y = 0;
+
+                    if (tumbleweed.vy < 0) {
+                        tumbleweed.vy = -tumbleweed.vy * tumbleweedConfig.bounceRestitution;
+                        tumbleweed.vx *= tumbleweedConfig.impactFriction;
+                        tumbleweed.bounces += 1;
+
+                        if (tumbleweed.vy < tumbleweedConfig.minBounceVy || tumbleweed.bounces >= tumbleweedConfig.maxBounces) {
+                            tumbleweed.vy = 0;
+                            tumbleweed.rolling = true;
+                        }
+                    }
+                }
+
+                if (tumbleweed.rolling) {
+                    tumbleweed.vx *= tumbleweedConfig.rollDrag;
+                    tumbleweed.spin *= tumbleweedConfig.groundSpinDamping;
+
+                    if (Math.abs(tumbleweed.vx) < tumbleweedConfig.minRollSpeed) {
+                        tumbleweed.vx = tumbleweed.vx >= 0
+                            ? tumbleweedConfig.minRollSpeed
+                            : -tumbleweedConfig.minRollSpeed;
+                    }
+                } else {
+                    tumbleweed.vx *= tumbleweedConfig.airDrag;
+                    tumbleweed.spin *= tumbleweedConfig.airSpinDamping;
+                }
+
+                tumbleweed.el.style.transform = `translate3d(${tumbleweed.x}px, ${-tumbleweed.y}px, 0) rotate(${tumbleweed.rotation}deg)`;
+
+                const beyondRight = tumbleweed.x > window.innerWidth + tumbleweedConfig.offscreenPadding;
+                const beyondLeft = tumbleweed.x < -tumbleweed.size - tumbleweedConfig.offscreenPadding;
+                const reachedExitSide = tumbleweed.fromLeft ? beyondRight : beyondLeft;
+
+                if (reachedExitSide) {
+                    removeTumbleweed(i);
+                }
+            }
+
+            requestAnimationFrame(animateTumbleweeds);
+        }
+
+        scheduleNextTumbleweed();
+        requestAnimationFrame(animateTumbleweeds);
+
+        function initializeSocket() {
+            socket = io();
+            
+            socket.on('connect', () => {
+                console.log('Connected to server!');
+                socket.emit('laptop-connected');
+                socket.emit('reset_game');
+            });
+
+            // New: receive both phone slots from server, e.g. { slots: [true, false] }
+            socket.on('phone_status', ({ slots }) => {
+                setDots(slots);
+
+                const connectedCount = (slots || []).filter(Boolean).length;
+                if (connectedCount === 0) {
+                    statusText.textContent = 'Waiting for phone connections...';
+                } else if (connectedCount === 1) {
+                    statusText.textContent = '1 phone connected. Waiting for player 2...';
+                } else {
+                    statusText.textContent = '2 phones connected. Ready!';
+                    socket.emit('begin_game');
+                }
+
+                if (connectedCount > 0 && !isMusicPlaying) {
+                    audio.play();
+                    isMusicPlaying = true;
+                }
+            });
+
+            // Backward compatibility if your server still emits this old event
+            socket.on('phone_connected', () => {
+                console.log('Phone connected!');
+                statusText.textContent = 'Phone connected! Waiting for second phone...';
+                if (!isMusicPlaying) {
+                    audio.play();
+                    isMusicPlaying = true;
+                }
+            });
+
+            // New: game starts once both phones are connected
+            socket.on('begin_game', () => {
+                console.log('Both phones connected. begin_game received!');
+                statusText.textContent = 'Both players ready! Begin game!';
+            });
+
+            socket.on('begin_shooting', () => {
+                console.log("It's shooting time!");
+                statusText.textContent = 'FIREBALL!';
+                const fireballAudio = new Audio('/static/fire.mp3');
+                fireballAudio.play();
+            });
+
+            socket.on('game_over', (data) => {
+                console.log('Game over! Winner:', data.winner);
+                statusText.textContent = `Game Over! Winner: ${data.winner}`;
+                //change the background color to the winning color
+                document.body.style.backgroundColor = data.winner;
+
+                if (isMusicPlaying) {
+                    audio.pause();
+                    audio.currentTime = 0;
+                    isMusicPlaying = false;
+                }
+            });
+
+            socket.on('ready_aim', () => {
+                console.log('Ready... Aim...');
+                statusText.textContent = 'Ready... Aim...';
+                const readyAimAudio = new Audio('/static/ready_aim.mp3');
+                readyAimAudio.play();
+            });
+
+            socket.on('take_places', () => {
+                console.log('Take your places!');
+                statusText.textContent = 'Take your places!';
+                const takePlacesAudio = new Audio('/static/take_places.mp3');
+                takePlacesAudio.play();
+            });
+
+            socket.on('player_moved', () => {
+                console.log('Movement detected from phone!');
+                statusText.textContent = 'Movement detected from phone!';
+                const audio = new Audio('/static/pew.mp3');
+                audio.play();
+            });
+        }
+
         document.getElementById('playMusicBtn').addEventListener('click', () => {
+            if (!isInfoPlayed) {
+                infoAudio.play().then(() => {
+                    isInfoPlayed = true;
+                }).catch(() => {
+                    console.log('Info audio playback failed');
+                });
+            }
             document.getElementById('playMusicBtn').style.display = 'none';
+            initializeSocket();
         });
 
         function setDots(slots) {
@@ -54,83 +336,6 @@
                 dot.classList.toggle('connected', !!slots[i]);
             }
         }
-
-        socket.on('connect', () => {
-            console.log('Connected to server!');
-            socket.emit('laptop-connected');
-            socket.emit('reset_game');
-        });
-
-        // New: receive both phone slots from server, e.g. { slots: [true, false] }
-        socket.on('phone_status', ({ slots }) => {
-            setDots(slots);
-
-            const connectedCount = (slots || []).filter(Boolean).length;
-            if (connectedCount === 0) {
-                statusText.textContent = 'Waiting for phone connections...';
-            } else if (connectedCount === 1) {
-                statusText.textContent = '1 phone connected. Waiting for player 2...';
-            } else {
-                statusText.textContent = '2 phones connected. Ready!';
-                socket.emit('begin_game');
-            }
-
-            if (connectedCount > 0 && !isMusicPlaying) {
-                audio.play();
-                isMusicPlaying = true;
-            }
-        });
-
-        // Backward compatibility if your server still emits this old event
-        socket.on('phone_connected', () => {
-            console.log('Phone connected!');
-            statusText.textContent = 'Phone connected! Waiting for second phone...';
-            if (!isMusicPlaying) {
-                audio.play();
-                isMusicPlaying = true;
-            }
-        });
-
-        // New: game starts once both phones are connected
-        socket.on('begin_game', () => {
-            console.log('Both phones connected. begin_game received!');
-            statusText.textContent = 'Both players ready! Begin game!';
-        });
-
-        socket.on('begin_shooting', () => {
-            console.log("It's shooting time!");
-            statusText.textContent = 'FIREBALL!';
-            const fireballAudio = new Audio('/static/fire.mp3');
-            fireballAudio.play();
-        });
-
-        socket.on('game_over', (data) => {
-            console.log('Game over! Winner:', data.winner);
-            statusText.textContent = `Game Over! Winner: ${data.winner}`;
-            //change the background color to the winning color
-            document.body.style.backgroundColor = data.winner;
-        });
-
-        socket.on('ready_aim', () => {
-            console.log('Ready... Aim...');
-            statusText.textContent = 'Ready... Aim...';
-            const readyAimAudio = new Audio('/static/ready_aim.mp3');
-            readyAimAudio.play();
-        });
-
-        socket.on('take_places', () => {
-            console.log('Take your places!');
-            statusText.textContent = 'Take your places!';
-            const takePlacesAudio = new Audio('/static/take_places.mp3');
-            takePlacesAudio.play();
-        });
-
-        socket.on('player_moved', () => {
-            console.log('Movement detected from phone!');
-            statusText.textContent = 'Movement detected from phone!';
-            const audio = new Audio('/static/pew.mp3');
-            audio.play();
-        });
     </script>
 </body>
 </html>
